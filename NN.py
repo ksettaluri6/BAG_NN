@@ -1,3 +1,4 @@
+import os
 import copy
 import numpy as np
 import pickle
@@ -9,10 +10,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 #constants/parameters for training
-input_data_file = "AFE_core2.pkl"
+input_data_file = "AFE_core_5k_points.txt"
 train_test_split_val = 65
 
-learning_rate = 0.001
+learning_rate = 0.01
 training_epochs = 300
 batch_size = 1 
 display_step = 1 
@@ -20,6 +21,33 @@ display_step = 1
 n_hidden_1 = 100 
 n_hidden_2 = 100 
 n_hidden_3 = 100 
+
+def parse_training(file_name):
+    if not os.path.isfile(file_name):
+        print("File " + file_name + " doesnt exist")
+        return
+    f = open(file_name, "r")
+    read_res = f.read()
+    points_lst = read_res.split("\n")
+    new_points_lst = []
+    for p in points_lst[1:]:
+        p = p.split("|")
+        params = p[0].split(" ")
+        params = [float(par) for par in params]
+        results = p[1].split(" ")
+        results = [float(res) for res in results]
+        new_points_lst += [[params, results]]
+    keys = points_lst[0].split("|")
+    keys = [keys[0].split(" "), keys[1].split(" ")]
+
+
+    n_param = len(keys[0])
+    n_specs = len(keys[1])
+
+    return keys, new_points_lst, n_param, n_specs
+
+
+
 
 #Load and parse input data
 def load_input(file_name,train_test_split):
@@ -50,6 +78,8 @@ def load_input(file_name,train_test_split):
     n_specs = np.array(train_specs).shape[1]    
     
     return train_param,train_specs,test_param,test_specs,n_param,n_specs
+
+
 
 #normalize data: y = (x - min)/(max - min), makes values between 0 and 1
 def norm_data(input_data_np):
@@ -109,6 +139,7 @@ def MSEerror(preds,train_specs):
 #calculates average accuracy of predicted versus actual specs
 def per_acc(preds,train_specs):
     per_acc_array = []
+    train_specs = np.array(train_specs) + 10e-10
     for pred_epoch in preds:
         per_acc = np.divide(np.subtract(np.array(pred_epoch),np.array(train_specs)),np.array(train_specs))
         per_acc_array.append(1-abs(np.average(np.array(per_acc))))
@@ -129,8 +160,21 @@ def plot(error_array,per_acc_array):
     plt.close()
 
 def main():
-    train_param, train_specs, test_param, test_specs,n_param,n_specs = load_input(input_data_file,train_test_split_val)
+    # train_param, train_specs, test_param, test_specs,n_param,n_specs = load_input(input_data_file,train_test_split_val)
+    keys, data, n_param, n_specs = parse_training(input_data_file)
+    train_param = [d[0] for d in data]
+    train_param = np.array(train_param).T.tolist()
+    train_param = [[(d - min(p)) / (max(p)-min(p)) for d in p] for p in train_param]
+    train_param = np.array(train_param).T.tolist()
+    train_specs = [d[1] for d in data]
+    train_specs = np.array(train_specs).T.tolist()
+    train_specs = [[(d-min(p)) / (max(p)-min(p)) for d in p] for p in train_specs]
+    train_specs = np.array(train_specs).T.tolist()
 
+    train_specs, train_param = train_param, train_specs
+    n_param, n_specs=n_specs, n_param
+    print np.shape(train_param)
+    print np.shape(train_specs)
     #Define TF inputs 
     x = tf.placeholder("float", [None, n_param])
     y = tf.placeholder("float", [None, n_specs])
@@ -168,7 +212,7 @@ def main():
             _,cost,predic = sess.run([train,loss,pred],feed_dict={x:train_param,y:train_specs})
             costs.append(cost)
             preds.append((predic)) 
- 
+    
     err_array,min_err = MSEerror(preds,train_specs)
     avg_percent_diff,max_acc = per_acc(preds,train_specs)
 
@@ -177,6 +221,9 @@ def main():
 
     #plot MSE and percent accuracy 
     plot(err_array,avg_percent_diff)
+    merged = tf.summary.merge_all()
+    train_write = tf.summary.FileWriter('/tmp/krishnas/tf_test', sess.graph)
+    test_write = tf.summary.FileWriter('/tmp/krishnas/tf_test')
     
 if __name__=="__main__":
     main()
